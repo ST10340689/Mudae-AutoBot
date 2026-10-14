@@ -97,22 +97,25 @@ DEFAULTS = {
 
     # --- Bonus & Daily Automation Features ---
     # Whether to roll Pokemon slot ($p) after completing the roll session
+    # Whether to roll Pokemon slot ($p) after completing the roll session
     'pokeRoll': False,
     # Whether to claim daily kakera ($dk)
     'dailyKakera': False,
+    # Kakera power percentage threshold below which $dk can be used (default: 15)
+    'dkPowerThreshold': 15,
     # Whether to claim daily rolls/votes ($daily)
     'dailyRoll': False,
 
     # --- Reset Timer ($rt) & Claim Cooldown Timing ---
-    # Cooldown of your $rt command in hours (default is 20h; with -15h kakera loot perk, defaults to 5.0h)
+    # Cooldown of your $rt command in hours (default: 20h; with -15h perk: 5.0h)
     'rtCooldownHours': 5.0,
-    # Automatically use $rt if a desired character appears while your regular claim is on cooldown
+    # Automatically use $rt if a desired character appears while regular claim is on cooldown
     'autoRtOnWishlist': True,
     # Automatically send $tu on startup to synchronize exact claim and $rt cooldown timers
     'checkTuOnStartup': True,
     # Regular claim cooldown in hours (default: 3.0)
     'claimCooldownHours': 3.0,
-    # Automatically click all kakera and sphere buttons on cards with Perk 8 bonus (⚡/2 halved power & :sp: :sp: double spheres)
+    # Automatically click all kakera and sphere buttons on cards with Perk 8 bonus (halved power and double spheres)
     'autoPerkBonusKakera': True,
 }
 
@@ -132,6 +135,7 @@ ENV_VARS = {
     'claimEmoji': 'CLAIM_EMOJI',
     'pokeRoll': 'POKE_ROLL',
     'dailyKakera': 'DAILY_KAKERA',
+    'dkPowerThreshold': 'DK_POWER_THRESHOLD',
     'dailyRoll': 'DAILY_ROLL',
     'autoPerkBonusKakera': 'AUTO_PERK_BONUS_KAKERA',
     'rtCooldownHours': 'RT_COOLDOWN_HOURS',
@@ -243,6 +247,7 @@ desiredKakeras: list = _settings['desiredKakeras']
 
 pokeRoll: bool = _settings['pokeRoll']
 dailyKakera: bool = _settings['dailyKakera']
+dkPowerThreshold: int = int(_settings['dkPowerThreshold'])
 dailyRoll: bool = _settings['dailyRoll']
 
 rtCooldownHours: float = float(_settings['rtCooldownHours'])

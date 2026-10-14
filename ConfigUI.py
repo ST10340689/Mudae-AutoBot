@@ -72,7 +72,7 @@ ACCOUNT_KEYS = ('token', 'channelId', 'serverId')
 class ConfigApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title("Mudae Bot – Settings")
+        root.title("Mudae Automation Settings")
         root.minsize(640, 560)
 
         style = ttk.Style(root)
@@ -104,7 +104,7 @@ class ConfigApp:
             names = ', '.join(Vars.ENV_VARS[k] for k in overrides)
             ttk.Label(
                 outer, style='Warn.TLabel', wraplength=600, justify='left',
-                text=f"⚠ These are set by environment variables / .env and take priority over "
+                text=f"[NOTE] These are set by environment variables / .env and take priority over "
                      f"values saved here: {names}",
             ).pack(anchor='w', pady=(0, 6))
 
@@ -187,6 +187,9 @@ class ConfigApp:
                                                 variable=self._bool('pokeRoll')))
         r = self._row(f, r, "", ttk.Checkbutton(f, text="Also claim Daily Kakera ($dk)",
                                                 variable=self._bool('dailyKakera')))
+        r = self._row(f, r, "Daily kakera power threshold (%)",
+                      ttk.Spinbox(f, textvariable=self._string('dkPowerThreshold'), from_=1, to=100, width=8),
+                      "Only executes $dk when kakera power is below this percentage (default: 15%).")
         r = self._row(f, r, "", ttk.Checkbutton(f, text="Also claim Daily rolls/vote ($daily)",
                                                 variable=self._bool('dailyRoll')))
         return f
@@ -273,9 +276,9 @@ class ConfigApp:
                       ttk.Entry(f, textvariable=self._string('otherKakeras'), width=40),
                       "Extra button emoji names not listed above. Matching is case-insensitive.")
         r = self._row(f, r, "",
-                      ttk.Checkbutton(f, text="Auto-click ALL kakera buttons on Perk 8 cards (⚡/2 halved power & :sp: :sp: double spheres)",
+                      ttk.Checkbutton(f, text="Auto-click all kakera buttons on Perk 8 cards (halved power and double spheres)",
                                       variable=self._bool('autoPerkBonusKakera')),
-                      "Recommended! Clicking these earns high sphere rewards from Perk 5 at 50% power cost or 2x spheres.")
+                      "Recommended. Clicking these earns high sphere rewards from Perk 5 at 50% power cost or 2x spheres.")
         return f
 
     def _set_kakeras_group(self, group: list, value: bool):
@@ -346,6 +349,7 @@ class ConfigApp:
         s['maxRollsPerSession'] = self._number('maxRollsPerSession', 'Max rolls per session', int, 1)
         s['minPowerToClaim'] = self._number('minPowerToClaim', 'Minimum kakera value', int, 0)
         s['rtCooldownHours'] = self._number('rtCooldownHours', '$rt cooldown', float, 0.1, 24.0)
+        s['dkPowerThreshold'] = self._number('dkPowerThreshold', 'Daily kakera threshold', int, 1, 100)
         for key in ('runOnStartup', 'pokeRoll', 'dailyKakera', 'dailyRoll', 'autoRtOnWishlist', 'checkTuOnStartup', 'claimAllUnclaimed', 'autoPerkBonusKakera'):
             s[key] = bool(self.vars[key].get())
         for key, text in self.lists.items():

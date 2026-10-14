@@ -44,6 +44,7 @@
   ],
   "pokeRoll": false,
   "dailyKakera": false,
+  "dkPowerThreshold": 15,
   "dailyRoll": false,
   "rtCooldownHours": 20.0,
   "autoRtOnWishlist": true,

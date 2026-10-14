@@ -139,37 +139,37 @@ class Logger:
 
     @staticmethod
     def info(msg: str):
-        print(f"{Fore.CYAN}[{Logger._timestamp()}] ℹ {msg}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}[{Logger._timestamp()}] [INFO] {msg}{Style.RESET_ALL}")
 
     @staticmethod
     def success(msg: str):
-        print(f"{Fore.GREEN}[{Logger._timestamp()}] ✔ {msg}{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[{Logger._timestamp()}] [SUCCESS] {msg}{Style.RESET_ALL}")
 
     @staticmethod
     def warn(msg: str):
-        print(f"{Fore.YELLOW}[{Logger._timestamp()}] ⚠ {msg}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[{Logger._timestamp()}] [WARNING] {msg}{Style.RESET_ALL}")
 
     @staticmethod
     def error(msg: str):
-        print(f"{Fore.RED}[{Logger._timestamp()}] ✖ {msg}{Style.RESET_ALL}")
+        print(f"{Fore.RED}[{Logger._timestamp()}] [ERROR] {msg}{Style.RESET_ALL}")
 
     @staticmethod
     def roll_unclaimed(index: int, power: int, name: str, series: str):
         p_str = f"{power:,}".rjust(6) if power > 0 else "     -"
-        print(f"{Fore.WHITE}[{Logger._timestamp()}] #{index:<2} 🤍 {Fore.CYAN}{p_str} kakera{Fore.WHITE} │ {Fore.GREEN}{name}{Fore.WHITE} ({series}){Style.RESET_ALL}")
+        print(f"{Fore.WHITE}[{Logger._timestamp()}] #{index:<2} [UNCLAIMED] {Fore.CYAN}{p_str} kakera{Fore.WHITE} | {Fore.GREEN}{name}{Fore.WHITE} ({series}){Style.RESET_ALL}")
 
     @staticmethod
     def roll_claimed(index: int, power: int, name: str, series: str):
         p_str = f"{power:,}".rjust(6) if power > 0 else "     -"
-        print(f"{Fore.LIGHTBLACK_EX}[{Logger._timestamp()}] #{index:<2} ❤️ {p_str} kakera │ {name} ({series}){Style.RESET_ALL}")
+        print(f"{Fore.LIGHTBLACK_EX}[{Logger._timestamp()}] #{index:<2} [CLAIMED]   {p_str} kakera | {name} ({series}){Style.RESET_ALL}")
 
     @staticmethod
     def claim_triggered(name: str, series: str, reason: str):
-        print(f"{Fore.MAGENTA}{Style.BRIGHT}[{Logger._timestamp()}] ✨ AUTO-CLAIM TRIGGERED ➔ {name} ({series}) [{reason}]{Style.RESET_ALL}")
+        print(f"{Fore.MAGENTA}{Style.BRIGHT}[{Logger._timestamp()}] [AUTO-CLAIM] -> {name} ({series}) [{reason}]{Style.RESET_ALL}")
 
     @staticmethod
     def kakera_reacted(emoji_name: str, card_name: str):
-        print(f"{Fore.YELLOW}[{Logger._timestamp()}] 💎 Reacted to {emoji_name} on {card_name}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[{Logger._timestamp()}] [KAKERA] Reacted to {emoji_name} on {card_name}{Style.RESET_ALL}")
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +429,7 @@ class MudaeRoller:
             if "$rt is ready" in full_text_lower or "rt is ready" in full_text_lower:
                 self.state_mgr.state['rt_available'] = True
                 self.state_mgr.state['last_rt_timestamp'] = 0.0
-                Logger.success("🔄 $rt status: READY")
+                Logger.success("$rt status: READY")
             elif "$rt" in full_text_lower or "reset" in full_text_lower:
                 rt_match = re.search(r'(?:reset in|\$rt\b[^\d]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?', full_text_lower)
                 if rt_match and (rt_match.group(1) or rt_match.group(2)):
@@ -439,7 +439,17 @@ class MudaeRoller:
                     cooldown_secs = getattr(Vars, 'rtCooldownHours', 5.0) * 3600.0
                     self.state_mgr.state['last_rt_timestamp'] = time.time() - max(0.0, cooldown_secs - rem_secs)
                     self.state_mgr.state['rt_available'] = False
-                    Logger.info(f"🔄 $rt status: On cooldown ({h}h {m}m remaining)")
+                    Logger.info(f"$rt status: On cooldown ({h}h {m}m remaining)")
+
+            # 3. Parse Kakera power percentage
+            power_match = re.search(r'kakera\s*power(?:\s*is\s*at)?\s*[:：]?\s*\*?(\d+)%', full_text, re.IGNORECASE)
+            if power_match:
+                try:
+                    power_pct = int(power_match.group(1))
+                    self.state_mgr.state['kakera_power'] = power_pct
+                    Logger.info(f"Kakera power: {power_pct}%")
+                except ValueError:
+                    pass
 
             self.state_mgr.state['last_tu_sync'] = time.time()
             self.state_mgr.save()
@@ -550,7 +560,7 @@ class MudaeRoller:
 
         if is_bonus_card:
             reason = card_info.get('sphere_bonus_reason', 'Perk 8 Bonus')
-            Logger.info(f"✨ Perk Bonus Active ({reason}) on {card_info['name']} -> Clicking ALL kakera & sphere buttons!")
+            Logger.info(f"Perk bonus active ({reason}) on {card_info['name']} -> clicking all kakera and sphere buttons")
 
         clicked = 0
         client = self._get_discum_client()
@@ -582,8 +592,6 @@ class MudaeRoller:
             if emoji_lower in desired_kakeras:
                 should_click = True
             elif is_bonus_card:
-                # If Perk 8 halved power (⚡/2) or double spheres (:sp: :sp:) is active,
-                # click all kakera and sphere buttons regardless of whether they are in desiredKakeras!
                 if (
                     emoji_lower.startswith('kakera') or
                     emoji_lower.startswith('sp') or
@@ -600,10 +608,10 @@ class MudaeRoller:
                     continue
                 try:
                     if emoji_lower.startswith('sp') or emoji_lower in known_sphere_set:
-                        Logger.info(f"🔮 Ourosphere button ({emoji_name}) clicked on {card_info['name']}")
+                        Logger.info(f"Ourosphere button ({emoji_name}) clicked on {card_info['name']}")
                     else:
                         if is_bonus_card and emoji_lower not in desired_kakeras:
-                            Logger.info(f"⚡ Perk 8 Bonus click ({emoji_name}) on {card_info['name']} [{card_info.get('sphere_bonus_reason')}]")
+                            Logger.info(f"Perk 8 bonus click ({emoji_name}) on {card_info['name']} [{card_info.get('sphere_bonus_reason')}]")
                         else:
                             Logger.kakera_reacted(emoji_name, card_info['name'])
 
@@ -622,32 +630,48 @@ class MudaeRoller:
 
         return clicked
 
+    def send_command(self, name: str, cmd: str) -> bool:
+        """Sends a text command to the channel and logs the result."""
+        Logger.info(f"Executing command: {name} ({cmd})...")
+        try:
+            r = self.session.post(self.messages_url, json={'content': cmd}, timeout=5)
+            if r.status_code in (200, 201):
+                Logger.success(f"{name} ({cmd}) sent successfully.")
+                time.sleep(1.5)
+                return True
+            else:
+                Logger.warn(f"{name} ({cmd}) returned HTTP {r.status_code}")
+        except Exception as e:
+            Logger.error(f"Error executing {name} ({cmd}): {e}")
+        return False
+
     def run_bonus_commands(self):
         """Executes configured daily and bonus commands ($p, $dk, $daily)."""
-        bonus_cmds = []
         if getattr(Vars, 'pokeRoll', False):
-            bonus_cmds.append(('Pokéslot', '$p'))
-        if getattr(Vars, 'dailyKakera', False):
-            bonus_cmds.append(('Daily Kakera', '$dk'))
-        if getattr(Vars, 'dailyRoll', False):
-            bonus_cmds.append(('Daily Rolls', '$daily'))
+            self.send_command('Pokeslot', '$p')
 
-        for name, cmd in bonus_cmds:
-            Logger.info(f"Executing bonus command: {name} ({cmd})...")
-            try:
-                r = self.session.post(self.messages_url, json={'content': cmd}, timeout=5)
-                if r.status_code in (200, 201):
-                    Logger.success(f"{name} ({cmd}) sent successfully.")
+        if getattr(Vars, 'dailyRoll', False):
+            self.send_command('Daily Roll', '$daily')
+
+        if getattr(Vars, 'dailyKakera', False):
+            threshold = getattr(Vars, 'dkPowerThreshold', 15)
+            # Sync timers via $tu to obtain live kakera power
+            self.sync_timers_via_tu()
+            current_power = self.state_mgr.state.get('kakera_power', None)
+
+            if current_power is not None:
+                if current_power < threshold:
+                    Logger.info(f"Kakera power is at {current_power}% (< {threshold}% threshold). Executing $dk...")
+                    self.send_command('Daily Kakera', '$dk')
                 else:
-                    Logger.warn(f"{name} ({cmd}) returned HTTP {r.status_code}")
-                time.sleep(1.5)
-            except Exception as e:
-                Logger.error(f"Error executing bonus command {cmd}: {e}")
+                    Logger.info(f"Daily Kakera ($dk) skipped: power is at {current_power}% (threshold: < {threshold}%).")
+            else:
+                Logger.warn("Daily Kakera ($dk) skipped: could not verify kakera power.")
 
     def run_roll_session(self):
         """Executes a full hourly roll session until rolls are exhausted or limits are reached."""
         print(f"\n{Fore.CYAN}{Style.BRIGHT}{'='*60}")
-        print(f"  🎲 MUDAE ROLL SESSION STARTED - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  MUDAE ROLL SESSION STARTED - {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*60}{Style.RESET_ALL}\n")
 
         roll_delay = getattr(Vars, 'rollDelay', 2.0)
@@ -750,7 +774,7 @@ class MudaeRoller:
                             if r.status_code in (200, 201):
                                 time.sleep(1.0)
                                 self.state_mgr.record_rt_used()
-                                Logger.success("🔄 $rt executed successfully! Claim timer refreshed.")
+                                Logger.success("[RT-CLAIM] $rt executed successfully. Claim timer refreshed.")
                                 claim_ready = True
                         except Exception as e:
                             Logger.error(f"Failed to execute $rt: {e}")
@@ -769,13 +793,13 @@ class MudaeRoller:
 
         # 9. Print Session Summary
         print(f"\n{Fore.CYAN}{'='*60}")
-        print(f"  📊 ROLL SESSION SUMMARY")
+        print(f"  ROLL SESSION SUMMARY")
         print(f"{'='*60}{Style.RESET_ALL}")
         print(f"  Total Rolls Made   : {rolls_count}")
         print(f"  Kakeras Reacted    : {kakeras_hit}")
         print(f"  Cards Auto-Claimed : {len(claimed_cards)}")
         for claim in claimed_cards:
-            print(f"   ➔ {Fore.GREEN}{claim}{Style.RESET_ALL}")
+            print(f"   * {Fore.GREEN}{claim}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}{'='*60}\n{Style.RESET_ALL}")
 
 
