@@ -1,0 +1,28 @@
+# Discord User Credentials & Personal Configuration
+settings.json
+.env
+
+# Bot Runtime State & Cache
+bot_state.json
+*.tmp
+*.log
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db

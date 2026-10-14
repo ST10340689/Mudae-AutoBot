@@ -1,0 +1,5 @@
+# Mudae AutoBot Dependencies
+discum>=1.4.0
+requests>=2.28.0
+schedule>=1.2.0
+colorama>=0.4.6
