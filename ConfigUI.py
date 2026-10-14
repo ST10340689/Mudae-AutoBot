@@ -233,10 +233,11 @@ class ConfigApp:
         f.rowconfigure(r, weight=1)
         lists.columnconfigure((0, 1), weight=1, uniform='lists')
         lists.rowconfigure(0, weight=1)
-        hint = "One per line. Case-insensitive, and partial matches count (e.g. 'Rem' also matches 'Remilia')."
-        self._list_box(lists, 'desiredCharacters', "Characters to claim", hint) \
+        char_hint = "One per line. Case-insensitive exact name match (e.g. 'Rem' only matches 'Rem', not 'Remilia')."
+        series_hint = "One per line. Case-insensitive whole-word or prefix match (e.g. 'Fate' matches 'Fate/stay night')."
+        self._list_box(lists, 'desiredCharacters', "Characters to claim", char_hint) \
             .grid(row=0, column=0, sticky='nsew', padx=(0, 6))
-        self._list_box(lists, 'desiredSeries', "Series to claim", hint) \
+        self._list_box(lists, 'desiredSeries', "Series to claim", series_hint) \
             .grid(row=0, column=1, sticky='nsew', padx=(6, 0))
         return f
 
