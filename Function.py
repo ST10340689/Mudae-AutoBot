@@ -56,6 +56,8 @@ class StateManager:
             'last_tu_sync': 0.0,
             'claim_available': True,
             'rt_available': True,
+            'kakera_power': None,
+            'dk_available': None,
             'last_bonus_timestamps': {}
         }
         self.load()
@@ -400,38 +402,64 @@ class MudaeRoller:
         self.state_mgr = StateManager()
 
     def sync_timers_via_tu(self):
-        """Sends $tu and synchronizes claim and $rt timers from Mudae's response."""
+        """Sends $tu and synchronizes claim, $rt, kakera power, and $dk timers from Mudae's response."""
         Logger.info("Syncing cooldown timers with Mudae ($tu)...")
         try:
             r = self.session.post(self.messages_url, json={'content': '$tu'}, timeout=5)
             if r.status_code not in (200, 201):
                 return
             time.sleep(2.0)
-            messages = self.fetch_recent_messages(limit=3)
-            mudae_msg = next((m for m in messages if m.get('author', {}).get('id') == BOT_ID), None)
+            messages = self.fetch_recent_messages(limit=5)
+            # Find the most recent Mudae message containing $tu info
+            mudae_msg = next((
+                m for m in messages
+                if m.get('author', {}).get('id') == BOT_ID and any(
+                    k in (m.get('content', '') + ' ' + str(m.get('embeds', ''))).lower()
+                    for k in ('claim', 'rolls', 'power', 'kakera', '$rt', '$dk')
+                )
+            ), None)
             if not mudae_msg:
-                return
+                time.sleep(1.5)
+                messages = self.fetch_recent_messages(limit=5)
+                mudae_msg = next((
+                    m for m in messages
+                    if m.get('author', {}).get('id') == BOT_ID and any(
+                        k in (m.get('content', '') + ' ' + str(m.get('embeds', ''))).lower()
+                        for k in ('claim', 'rolls', 'power', 'kakera', '$rt', '$dk')
+                    )
+                ), None)
+                if not mudae_msg:
+                    Logger.warn("Did not receive a recognizable $tu response from Mudae.")
+                    return
 
             content = mudae_msg.get('content', '')
             embeds = mudae_msg.get('embeds', [])
-            full_text = content + ' ' + ' '.join(e.get('description', '') for e in embeds)
+            embed_texts = []
+            for e in embeds:
+                embed_texts.append(e.get('title', ''))
+                embed_texts.append(e.get('description', ''))
+                for field in e.get('fields', []):
+                    embed_texts.append(field.get('name', ''))
+                    embed_texts.append(field.get('value', ''))
+            full_text = (content + ' ' + ' '.join(t for t in embed_texts if t)).strip()
             full_text_lower = full_text.lower()
+            clean_lower = re.sub(r'[*_`]', '', full_text_lower)
 
             # 1. Parse claim status
-            if "can claim right now" in full_text_lower or "claim is ready" in full_text_lower:
+            if "can claim right now" in clean_lower or "claim is ready" in clean_lower:
                 self.state_mgr.state['claim_available'] = True
                 Logger.success("Claim status: READY")
-            elif "can't claim right now" in full_text_lower or "cannot claim" in full_text_lower:
+            elif "can't claim right now" in clean_lower or "cannot claim" in clean_lower:
                 self.state_mgr.state['claim_available'] = False
                 Logger.info("Claim status: ON COOLDOWN")
 
             # 2. Parse $rt status
-            if "$rt is ready" in full_text_lower or "rt is ready" in full_text_lower:
+            if any(p in clean_lower for p in ["$rt is available", "rt is available", "$rt is ready", "rt is ready", "can use $rt"]):
                 self.state_mgr.state['rt_available'] = True
                 self.state_mgr.state['last_rt_timestamp'] = 0.0
                 Logger.success("$rt status: READY")
-            elif "$rt" in full_text_lower or "reset" in full_text_lower:
-                rt_match = re.search(r'(?:reset in|\$rt\b[^\d]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?', full_text_lower)
+            else:
+                rt_match = re.search(r'(?:next\s*\$rt\s*in|\$rt\s*(?:reset|cooldown)\s*in|cannot\s*use\s*\$rt[^\d\n]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?', clean_lower)
                 if rt_match and (rt_match.group(1) or rt_match.group(2)):
                     h = int(rt_match.group(1) or 0)
                     m = int(rt_match.group(2) or 0)
@@ -442,7 +470,7 @@ class MudaeRoller:
                     Logger.info(f"$rt status: On cooldown ({h}h {m}m remaining)")
 
             # 3. Parse Kakera power percentage
-            power_match = re.search(r'kakera\s*power(?:\s*is\s*at)?\s*[:：]?\s*\*?(\d+)%', full_text, re.IGNORECASE)
+            power_match = re.search(r'(?:kakera\s+)?power(?:\s+is\s+at)?\s*[:：]?\s*[*_]*(\d+)[*_]*%', full_text, re.IGNORECASE)
             if power_match:
                 try:
                     power_pct = int(power_match.group(1))
@@ -450,6 +478,19 @@ class MudaeRoller:
                     Logger.info(f"Kakera power: {power_pct}%")
                 except ValueError:
                     pass
+            else:
+                Logger.warn("Could not extract kakera power percentage from $tu response.")
+
+            # 4. Parse $dk status
+            dk_match = re.search(r'(?:next\s*\$dk\s*in|\$dk\s*(?:reset|cooldown)\s*in|cannot\s*use\s*\$dk[^\d\n]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?', clean_lower)
+            if dk_match and (dk_match.group(1) or dk_match.group(2)):
+                dh = int(dk_match.group(1) or 0)
+                dm = int(dk_match.group(2) or 0)
+                self.state_mgr.state['dk_available'] = False
+                Logger.info(f"$dk status: On cooldown ({dh}h {dm}m remaining)")
+            elif any(p in clean_lower for p in ["$dk is available", "dk is available", "$dk is ready", "dk is ready", "can use $dk", "may use $dk"]):
+                self.state_mgr.state['dk_available'] = True
+                Logger.success("$dk status: READY")
 
             self.state_mgr.state['last_tu_sync'] = time.time()
             self.state_mgr.save()
@@ -655,18 +696,23 @@ class MudaeRoller:
 
         if getattr(Vars, 'dailyKakera', False):
             threshold = getattr(Vars, 'dkPowerThreshold', 15)
-            # Sync timers via $tu to obtain live kakera power
+            # Sync timers via $tu to obtain live kakera power and $dk cooldown status
             self.sync_timers_via_tu()
-            current_power = self.state_mgr.state.get('kakera_power', None)
 
-            if current_power is not None:
-                if current_power < threshold:
-                    Logger.info(f"Kakera power is at {current_power}% (< {threshold}% threshold). Executing $dk...")
-                    self.send_command('Daily Kakera', '$dk')
-                else:
-                    Logger.info(f"Daily Kakera ($dk) skipped: power is at {current_power}% (threshold: < {threshold}%).")
+            if self.state_mgr.state.get('dk_available') is False:
+                Logger.info("Daily Kakera ($dk) skipped: command is currently on cooldown.")
             else:
-                Logger.warn("Daily Kakera ($dk) skipped: could not verify kakera power.")
+                current_power = self.state_mgr.state.get('kakera_power', None)
+                if current_power is not None:
+                    if current_power < threshold:
+                        Logger.info(f"Kakera power is at {current_power}% (< {threshold}% threshold). Executing $dk...")
+                        if self.send_command('Daily Kakera', '$dk'):
+                            self.state_mgr.state['dk_available'] = False
+                            self.state_mgr.save()
+                    else:
+                        Logger.info(f"Daily Kakera ($dk) skipped: power is at {current_power}% (threshold: < {threshold}%).")
+                else:
+                    Logger.warn("Daily Kakera ($dk) skipped: could not verify kakera power.")
 
     def run_roll_session(self):
         """Executes a full hourly roll session until rolls are exhausted or limits are reached."""
