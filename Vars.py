@@ -97,7 +97,6 @@ DEFAULTS = {
 
     # --- Bonus & Daily Automation Features ---
     # Whether to roll Pokemon slot ($p) after completing the roll session
-    # Whether to roll Pokemon slot ($p) after completing the roll session
     'pokeRoll': False,
     # Whether to claim daily kakera ($dk)
     'dailyKakera': False,
@@ -221,6 +220,16 @@ def resolve_settings() -> dict:
     return settings
 
 
+def reload_settings() -> dict:
+    """Reloads settings from disk and environment into module globals at runtime."""
+    global _settings
+    _settings = resolve_settings()
+    g = globals()
+    for key, val in _settings.items():
+        g[key] = val
+    return _settings
+
+
 # ---------------------------------------------------------------------------
 # Effective module-level settings (read by Bot.py and Function.py)
 # ---------------------------------------------------------------------------
@@ -315,6 +324,10 @@ def validate_settings(s: dict) -> list:
         issues.append("maxRollsPerSession must be at least 1.")
     if s.get('minPowerToClaim', 0) < 0:
         issues.append("minPowerToClaim cannot be negative.")
+    if not (0.1 <= float(s.get('rtCooldownHours', 5.0)) <= 24.0):
+        issues.append("rtCooldownHours must be between 0.1 and 24.0.")
+    if not (1 <= int(s.get('dkPowerThreshold', 15)) <= 100):
+        issues.append("dkPowerThreshold must be between 1 and 100.")
     if not str(s.get('claimEmoji', '')).strip():
         issues.append("claimEmoji cannot be empty.")
     return issues

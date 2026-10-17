@@ -12,7 +12,7 @@ import random
 import urllib.parse
 from typing import Optional, Dict, Any, List, Tuple
 
-# Reconfigure stdout/stderr on Windows to ensure emojis and UTF-8 symbols render properly without charmap errors
+# Reconfigure stdout/stderr on Windows to ensure UTF-8 symbols render properly without charmap errors
 if sys.platform == 'win32':
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -47,6 +47,7 @@ BOT_ID = '432610292342587392'  # Mudae Discord Bot ID
 API_VERSION = getattr(Vars, 'discordApiVersion', 'v10')
 STATE_FILE = os.path.join(getattr(Vars, 'BASE_DIR', '.'), 'bot_state.json')
 
+
 class StateManager:
     """Manages persistent bot state on disk (survives restarts)."""
     def __init__(self):
@@ -55,9 +56,12 @@ class StateManager:
             'last_claim_timestamp': 0.0,
             'last_tu_sync': 0.0,
             'claim_available': True,
+            'claim_ready_at': 0.0,
             'rt_available': True,
+            'rt_ready_at': 0.0,
             'kakera_power': None,
             'dk_available': None,
+            'dk_ready_at': 0.0,
             'last_bonus_timestamps': {}
         }
         self.load()
@@ -84,45 +88,105 @@ class StateManager:
     def is_rt_ready(self) -> bool:
         if self.state.get('rt_available') is True:
             return True
+        now = time.time()
+        rt_ready_at = self.state.get('rt_ready_at', 0.0)
+        if rt_ready_at > 0.0:
+            if now >= rt_ready_at:
+                self.state['rt_available'] = True
+                return True
+            return False
         last_rt = self.state.get('last_rt_timestamp', 0.0)
+        if last_rt <= 0.0:
+            return False
         cooldown_secs = getattr(Vars, 'rtCooldownHours', 5.0) * 3600.0
-        if (time.time() - last_rt) >= cooldown_secs:
+        if (now - last_rt) >= cooldown_secs:
             self.state['rt_available'] = True
             return True
         return False
 
     def record_rt_used(self):
-        self.state['last_rt_timestamp'] = time.time()
+        now = time.time()
+        cooldown_secs = getattr(Vars, 'rtCooldownHours', 5.0) * 3600.0
+        self.state['last_rt_timestamp'] = now
+        self.state['rt_ready_at'] = now + cooldown_secs
         self.state['rt_available'] = False
         self.state['claim_available'] = True
+        self.state['claim_ready_at'] = 0.0
         self.save()
 
     def is_claim_ready(self) -> bool:
         if self.state.get('claim_available') is True:
             return True
+        now = time.time()
+        claim_ready_at = self.state.get('claim_ready_at', 0.0)
+        if claim_ready_at > 0.0:
+            if now >= claim_ready_at:
+                self.state['claim_available'] = True
+                return True
+            return False
         last_claim = self.state.get('last_claim_timestamp', 0.0)
+        if last_claim <= 0.0:
+            return False
         cooldown_secs = getattr(Vars, 'claimCooldownHours', 3.0) * 3600.0
-        if (time.time() - last_claim) >= cooldown_secs:
+        if (now - last_claim) >= cooldown_secs:
             self.state['claim_available'] = True
             return True
         return False
 
     def record_claim_used(self):
-        self.state['last_claim_timestamp'] = time.time()
+        now = time.time()
+        cooldown_secs = getattr(Vars, 'claimCooldownHours', 3.0) * 3600.0
+        self.state['last_claim_timestamp'] = now
+        self.state['claim_ready_at'] = now + cooldown_secs
         self.state['claim_available'] = False
+        self.save()
+
+    def is_dk_ready(self) -> Optional[bool]:
+        if self.state.get('dk_available') is True:
+            return True
+        dk_ready_at = self.state.get('dk_ready_at', 0.0)
+        if dk_ready_at > 0.0:
+            if time.time() >= dk_ready_at:
+                self.state['dk_available'] = True
+                return True
+            return False
+        return self.state.get('dk_available', None)
+
+    def record_dk_used(self):
+        now = time.time()
+        self.state['dk_available'] = False
+        self.state['dk_ready_at'] = now + 20.0 * 3600.0
         self.save()
 
     def get_rt_remaining_str(self) -> str:
         if self.is_rt_ready():
             return "READY"
-        last_rt = self.state.get('last_rt_timestamp', 0.0)
-        cooldown_secs = getattr(Vars, 'rtCooldownHours', 5.0) * 3600.0
-        remaining = cooldown_secs - (time.time() - last_rt)
+        now = time.time()
+        rt_ready_at = self.state.get('rt_ready_at', 0.0)
+        if rt_ready_at > now:
+            remaining = rt_ready_at - now
+        else:
+            last_rt = self.state.get('last_rt_timestamp', 0.0)
+            cooldown_secs = getattr(Vars, 'rtCooldownHours', 5.0) * 3600.0
+            remaining = cooldown_secs - (now - last_rt)
         if remaining <= 0:
             return "READY"
         h = int(remaining // 3600)
         m = int((remaining % 3600) // 60)
         return f"{h}h {m:02d}m remaining"
+
+    def get_dk_remaining_str(self) -> str:
+        if self.is_dk_ready() is True:
+            return "READY"
+        now = time.time()
+        dk_ready_at = self.state.get('dk_ready_at', 0.0)
+        if dk_ready_at > now:
+            remaining = dk_ready_at - now
+            h = int(remaining // 3600)
+            m = int((remaining % 3600) // 60)
+            return f"{h}h {m:02d}m remaining"
+        return "ON COOLDOWN"
+
 
 # Preserve legacy globals for backwards compatibility
 botID = BOT_ID
@@ -157,13 +221,13 @@ class Logger:
 
     @staticmethod
     def roll_unclaimed(index: int, power: int, name: str, series: str):
-        p_str = f"{power:,}".rjust(6) if power > 0 else "     -"
-        print(f"{Fore.WHITE}[{Logger._timestamp()}] #{index:<2} [UNCLAIMED] {Fore.CYAN}{p_str} kakera{Fore.WHITE} | {Fore.GREEN}{name}{Fore.WHITE} ({series}){Style.RESET_ALL}")
+        p_str = f"{power:,}".rjust(7) if power > 0 else "      -"
+        print(f"{Fore.WHITE}[{Logger._timestamp()}] #{index:<3} [UNCLAIMED] {Fore.CYAN}{p_str} kakera{Fore.WHITE} | {Fore.GREEN}{name}{Fore.WHITE} ({series}){Style.RESET_ALL}")
 
     @staticmethod
     def roll_claimed(index: int, power: int, name: str, series: str):
-        p_str = f"{power:,}".rjust(6) if power > 0 else "     -"
-        print(f"{Fore.LIGHTBLACK_EX}[{Logger._timestamp()}] #{index:<2} [CLAIMED]   {p_str} kakera | {name} ({series}){Style.RESET_ALL}")
+        p_str = f"{power:,}".rjust(7) if power > 0 else "      -"
+        print(f"{Fore.LIGHTBLACK_EX}[{Logger._timestamp()}] #{index:<3} [CLAIMED]   {p_str} kakera | {name} ({series}){Style.RESET_ALL}")
 
     @staticmethod
     def claim_triggered(name: str, series: str, reason: str):
@@ -175,33 +239,47 @@ class Logger:
 
 
 # ---------------------------------------------------------------------------
-# Card Parser & Matcher
+# Card Parser & Matcher (Pre-compiled Regexes & O(1) Target Lookup Cache)
 # ---------------------------------------------------------------------------
 class CardParser:
-    @staticmethod
-    def clean_series_name(raw_series: str) -> str:
+    _RE_CUSTOM_EMOJI = re.compile(r'<a?:\w+:\d+>')
+    _RE_TEXT_EMOJI = re.compile(r':(?:female|male|transgender_symbol|gem|star|sparkles|\w+):')
+    _RE_UNICODE_SYMBOLS = re.compile(r'[\U00010000-\U0010ffff\u2600-\u27ff\u2300-\u23ff\u2b50\ufe0f\u200d]')
+    _RE_SPACES = re.compile(r'\s+')
+    _RE_PARENS = re.compile(r'[\(\[\{].*?[\)\]\}]')
+
+    _RE_KAKERA_1 = re.compile(r'(?:\*\*([\d,]+)\*\*|([\d,]+))\s*(?:<a?:\w+:\d+>|:?kakera\b)', re.IGNORECASE)
+    _RE_KAKERA_2 = re.compile(r'(?:<a?:\w+:\d+>|:?kakera\b)\s*(?:\*\*([\d,]+)\*\*|([\d,]+))', re.IGNORECASE)
+    _RE_BOLD_NUM = re.compile(r'\*\*([\d,]+)\*\*')
+
+    _RE_HALVED_POWER = re.compile(r'(?:⚡|\u26a1\ufe0f?|:zap:|<a?:\w*zap\w*:\d+>)\s*/\s*2')
+    _RE_DOUBLE_SP = re.compile(r'(?:<a?:sp:\d+>|:sp:|🔴)\s*(?:<a?:sp:\d+>|:sp:|🔴)', re.IGNORECASE)
+    _RE_SINGLE_SP = re.compile(r'<a?:sp:\d+>|:sp:', re.IGNORECASE)
+
+    # Target cache state
+    _cached_chars_source: Optional[tuple] = None
+    _cached_chars_map: Dict[str, str] = {}
+    _cached_series_source: Optional[tuple] = None
+    _cached_series_entries: List[Tuple[str, str, str, Optional[re.Pattern]]] = []
+
+    @classmethod
+    def clean_series_name(cls, raw_series: str) -> str:
         """Removes Discord emojis, unicode pictographs, and clutter from series string."""
         if not raw_series:
             return "Unknown Series"
-        # Remove Discord custom emojis <:name:id> or <a:name:id>
-        cleaned = re.sub(r'<a?:\w+:\d+>', '', raw_series)
-        # Remove Discord text emojis like :female:, :male:, :transgender_symbol:, etc.
-        cleaned = re.sub(r':(?:female|male|transgender_symbol|gem|star|sparkles|\w+):', '', cleaned)
-        # Remove common unicode symbols, emojis, stars, variation selectors
-        cleaned = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27ff\u2300-\u23ff\u2b50\ufe0f\u200d]', '', cleaned)
-        # Collapse extra spaces
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = cls._RE_CUSTOM_EMOJI.sub('', raw_series)
+        cleaned = cls._RE_TEXT_EMOJI.sub('', cleaned)
+        cleaned = cls._RE_UNICODE_SYMBOLS.sub('', cleaned)
+        cleaned = cls._RE_SPACES.sub(' ', cleaned).strip()
         return cleaned if cleaned else "Unknown Series"
 
-    @staticmethod
-    def extract_kakera_power(description: str) -> int:
+    @classmethod
+    def extract_kakera_power(cls, description: str) -> int:
         """Extracts kakera value from Mudae embed description (both bolded and unbolded)."""
         if not description:
             return 0
-        
-        # 1. Number adjacent to kakera emoji or text (with or without markdown **)
-        # e.g. "18,013:kakera:", "**85**<:kakera:123>", "1,234 kakera", "· 90 kakera"
-        m1 = re.search(r'(?:\*\*([\d,]+)\*\*|([\d,]+))\s*(?:<a?:\w+:\d+>|:?kakera\b)', description, re.IGNORECASE)
+
+        m1 = cls._RE_KAKERA_1.search(description)
         if m1:
             try:
                 val = m1.group(1) or m1.group(2)
@@ -209,9 +287,7 @@ class CardParser:
             except (ValueError, AttributeError):
                 pass
 
-        # 2. Kakera emoji/text preceding number (with or without **)
-        # e.g. "<:kakera:123> **550**", ":kakera: 450"
-        m2 = re.search(r'(?:<a?:\w+:\d+>|:?kakera\b)\s*(?:\*\*([\d,]+)\*\*|([\d,]+))', description, re.IGNORECASE)
+        m2 = cls._RE_KAKERA_2.search(description)
         if m2:
             try:
                 val = m2.group(1) or m2.group(2)
@@ -219,8 +295,7 @@ class CardParser:
             except (ValueError, AttributeError):
                 pass
 
-        # 3. Fallback: find any bold number with commas or digits in description
-        all_bold = re.findall(r'\*\*([\d,]+)\*\*', description)
+        all_bold = cls._RE_BOLD_NUM.findall(description)
         if all_bold:
             try:
                 return int(all_bold[-1].replace(',', ''))
@@ -250,11 +325,11 @@ class CardParser:
         is_claimed = bool(footer.get('icon_url'))
 
         # Check for Perk 8 Halved Power (⚡/2) and Double Spheres (:sp: :sp:)
-        full_text = description + " " + footer.get('text', '') + " " + message.get('content', '')
-        is_halved_power = bool(re.search(r'(?:⚡|\u26a1\ufe0f?|:zap:|<a?:\w*zap\w*:\d+>)\s*/\s*2', full_text))
+        full_text = f"{description} {footer.get('text', '')} {message.get('content', '')}"
+        is_halved_power = bool(cls._RE_HALVED_POWER.search(full_text))
         has_double_spheres = bool(
-            re.search(r'(?:<a?:sp:\d+>|:sp:|🔴)\s*(?:<a?:sp:\d+>|:sp:|🔴)', full_text, re.IGNORECASE) or
-            len(re.findall(r'<a?:sp:\d+>|:sp:', full_text, re.IGNORECASE)) >= 2
+            cls._RE_DOUBLE_SP.search(full_text) or
+            len(cls._RE_SINGLE_SP.findall(full_text)) >= 2
         )
         has_sphere_perk_bonus = is_halved_power or has_double_spheres
         sphere_bonus_reason = ""
@@ -267,10 +342,11 @@ class CardParser:
 
         # Extract interactive button components (for kakera and claim buttons)
         components = message.get('components', [])
-        buttons = []
-        for row in components:
-            for comp in row.get('components', []):
-                buttons.append(comp)
+        buttons = [
+            comp
+            for row in components
+            for comp in row.get('components', [])
+        ]
 
         return {
             'message_id': message.get('id'),
@@ -289,13 +365,13 @@ class CardParser:
             'sphere_bonus_reason': sphere_bonus_reason,
         }
 
-    @staticmethod
-    def normalize_text(s: str) -> str:
+    @classmethod
+    def normalize_text(cls, s: str) -> str:
         """Normalizes smart quotes, apostrophes, and spacing."""
         if not s:
             return ""
         s = s.replace("’", "'").replace("`", "'").replace("“", '"').replace("”", '"')
-        s = re.sub(r'\s+', ' ', s)
+        s = cls._RE_SPACES.sub(' ', s)
         return s.strip().lower()
 
     @classmethod
@@ -303,46 +379,66 @@ class CardParser:
         """
         Matches desired character name against the rolled card name.
         Requires an exact match including any tags (e.g. 'Durandal' will not match 'Durandal (Uma)').
-        Strictly prevents cross-character collisions.
         """
         t = cls.normalize_text(target)
         c = cls.normalize_text(card_name)
         if not t or not c:
             return False
-
-        # Exact match (case-insensitive, normalized) prevents any false positives
         return t == c
 
     @classmethod
     def match_series(cls, target: str, card_series: str) -> bool:
-        """
-        Precisely matches a desired series name against the rolled card series.
-        """
+        """Precisely matches a desired series name against the rolled card series."""
         t = cls.normalize_text(target)
         c = cls.normalize_text(card_series)
         if not t or not c:
             return False
 
-        # 1. Exact match
         if t == c:
             return True
 
-        # 2. Base match stripping parentheses/brackets
-        t_base = re.sub(r'[\(\[\{].*?[\)\]\}]', '', t).strip()
-        c_base = re.sub(r'[\(\[\{].*?[\)\]\}]', '', c).strip()
+        t_base = cls._RE_PARENS.sub('', t).strip()
+        c_base = cls._RE_PARENS.sub('', c).strip()
         if t_base and c_base and t_base == c_base:
             return True
 
-        # 3. Whole-word / phrase bounded match (e.g. 'Fate' matches 'Fate/stay night')
-        pattern = r'(?:\b|^)' + re.escape(t) + r'(?:\b|$)'
-        if len(t) >= 3 and re.search(pattern, c):
-            return True
-
-        # 4. Prefix match for series (e.g. 'Re:Zero' matches 'Re:Zero kara Hajimeru Isekai Seikatsu')
-        if len(t) >= 3 and c.startswith(t):
-            return True
+        if len(t) >= 3:
+            if c.startswith(t):
+                return True
+            pattern = r'(?:\b|^)' + re.escape(t) + r'(?:\b|$)'
+            if re.search(pattern, c):
+                return True
 
         return False
+
+    @classmethod
+    def _ensure_caches(cls):
+        """Rebuilds O(1) character lookup map and compiled series patterns if Vars changed."""
+        raw_chars = tuple(getattr(Vars, 'desiredCharacters', []) or ())
+        if raw_chars != cls._cached_chars_source:
+            char_map = {}
+            for target in raw_chars:
+                if target and str(target).strip():
+                    norm = cls.normalize_text(str(target))
+                    if norm and norm not in char_map:
+                        char_map[norm] = str(target).strip()
+            cls._cached_chars_map = char_map
+            cls._cached_chars_source = raw_chars
+
+        raw_series = tuple(getattr(Vars, 'desiredSeries', []) or ())
+        if raw_series != cls._cached_series_source:
+            entries = []
+            for target in raw_series:
+                if target and str(target).strip():
+                    t_raw = str(target).strip()
+                    t_norm = cls.normalize_text(t_raw)
+                    if not t_norm:
+                        continue
+                    t_base = cls._RE_PARENS.sub('', t_norm).strip()
+                    pat = re.compile(r'(?:\b|^)' + re.escape(t_norm) + r'(?:\b|$)') if len(t_norm) >= 3 else None
+                    entries.append((t_raw, t_norm, t_base, pat))
+            cls._cached_series_entries = entries
+            cls._cached_series_source = raw_series
 
     @classmethod
     def should_claim(cls, card_info: Dict[str, Any]) -> Tuple[bool, str]:
@@ -353,30 +449,29 @@ class CardParser:
         if card_info['is_claimed']:
             return False, ""
 
-        # Option: Claim all unclaimed rolls
         if getattr(Vars, 'claimAllUnclaimed', False):
             return True, "Claim All Unclaimed"
 
-        card_name = card_info['name']
-        card_series = card_info['series']
+        cls._ensure_caches()
 
-        # Check Desired Characters with precise word-boundary matching
-        desired_chars = getattr(Vars, 'desiredCharacters', [])
-        for target in desired_chars:
-            if not target or not str(target).strip():
-                continue
-            if cls.match_character(str(target), card_name):
-                return True, f"Desired Character: '{target}'"
+        # 1. O(1) Lookup for Desired Characters
+        norm_name = cls.normalize_text(card_info['name'])
+        if norm_name and norm_name in cls._cached_chars_map:
+            return True, f"Desired Character: '{cls._cached_chars_map[norm_name]}'"
 
-        # Check Desired Series with precise matching
-        desired_series = getattr(Vars, 'desiredSeries', [])
-        for target in desired_series:
-            if not target or not str(target).strip():
-                continue
-            if cls.match_series(str(target), card_series):
-                return True, f"Desired Series: '{target}'"
+        # 2. Pre-compiled Lookup for Desired Series
+        norm_series = cls.normalize_text(card_info['series'])
+        if norm_series and cls._cached_series_entries:
+            c_base = cls._RE_PARENS.sub('', norm_series).strip()
+            for t_raw, t_norm, t_base, pat in cls._cached_series_entries:
+                if t_norm == norm_series:
+                    return True, f"Desired Series: '{t_raw}'"
+                if t_base and c_base and t_base == c_base:
+                    return True, f"Desired Series: '{t_raw}'"
+                if pat is not None and (norm_series.startswith(t_norm) or pat.search(norm_series)):
+                    return True, f"Desired Series: '{t_raw}'"
 
-        # Check Minimum Kakera Power Threshold
+        # 3. Minimum Kakera Power Threshold
         min_power = getattr(Vars, 'minPowerToClaim', 0)
         if min_power > 0 and card_info['power'] >= min_power:
             return True, f"High Kakera: {card_info['power']} >= {min_power}"
@@ -388,18 +483,58 @@ class CardParser:
 # Mudae Roller Engine
 # ---------------------------------------------------------------------------
 class MudaeRoller:
+    # Mudae Kakera button value hierarchy (lower number = clicked first when power is limited)
+    _BUTTON_PRIORITY_MAP = {
+        'spp': 0, 'kakerap': 0,
+        'spr': 1, 'spo': 1, 'spy': 1, 'spg': 1, 'spt': 1, 'spb': 1,
+        'spl': 1, 'spd': 1, 'spm': 1, 'spw': 1, 'spc': 1,
+        'kakerac': 2, 'kakeraw': 2, 'kakeral': 2,
+        'kakerar': 3, 'kakerad': 3, 'kakerao': 3,
+        'kakeray': 4, 'kakerag': 4, 'kakerat': 4, 'kakerab': 4,
+        'kakera': 5,
+    }
+
+    _RE_TU_CLAIM_CD = re.compile(
+        r'next\s+claim\s+reset\s+(?:is\s+)?in\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?'
+    )
+    _RE_TU_RT_CD = re.compile(
+        r'(?:next\s*\$rt\s*in|\$rt\s*(?:reset|cooldown)\s*in|cannot\s*use\s*\$rt[^\d\n]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?'
+    )
+    _RE_TU_POWER = re.compile(
+        r'(?:kakera\s+)?power(?:\s+is\s+at)?\s*[:：]?\s*[*_]*(\d+)[*_]*%',
+        re.IGNORECASE
+    )
+    _RE_TU_DK_CD = re.compile(
+        r'(?:next\s*\$dk\s*in|\$dk\s*(?:reset|cooldown)\s*in|cannot\s*use\s*\$dk[^\d\n]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?'
+    )
+
     def __init__(self):
         self.session = requests.Session()
+        self.discum_client: Optional[discum.Client] = None
+        self.cached_slash_command: Optional[Dict[str, Any]] = None
+        self._cached_cmd_name: Optional[str] = None
+        self._cached_token: Optional[str] = None
+        self.api_version = getattr(Vars, 'discordApiVersion', 'v10')
+        self.messages_url = ""
+        self.state_mgr = StateManager()
+        self.refresh_config()
+
+    def refresh_config(self):
+        """Synchronizes HTTP session headers and slash command cache with current Vars."""
+        self.api_version = getattr(Vars, 'discordApiVersion', 'v10')
+        self.messages_url = f"https://discord.com/api/{self.api_version}/channels/{Vars.channelId}/messages"
         self.session.headers.update({
             'Authorization': Vars.token,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Content-Type': 'application/json'
         })
-        self.discum_client = None
-        self.cached_slash_command = None
-        self.api_version = getattr(Vars, 'discordApiVersion', 'v10')
-        self.messages_url = f"https://discord.com/api/{self.api_version}/channels/{Vars.channelId}/messages"
-        self.state_mgr = StateManager()
+        if self._cached_token != Vars.token:
+            self.discum_client = None
+            self.cached_slash_command = None
+            self._cached_token = Vars.token
+        if self._cached_cmd_name != Vars.rollCommand:
+            self.cached_slash_command = None
+            self._cached_cmd_name = Vars.rollCommand
 
     def sync_timers_via_tu(self):
         """Sends $tu and synchronizes claim, $rt, kakera power, and $dk timers from Mudae's response."""
@@ -410,7 +545,6 @@ class MudaeRoller:
                 return
             time.sleep(2.0)
             messages = self.fetch_recent_messages(limit=5)
-            # Find the most recent Mudae message containing $tu info
             mudae_msg = next((
                 m for m in messages
                 if m.get('author', {}).get('id') == BOT_ID and any(
@@ -444,33 +578,48 @@ class MudaeRoller:
             full_text = (content + ' ' + ' '.join(t for t in embed_texts if t)).strip()
             full_text_lower = full_text.lower()
             clean_lower = re.sub(r'[*_`]', '', full_text_lower)
+            now = time.time()
 
-            # 1. Parse claim status
+            # 1. Parse claim status & exact remaining reset timer
             if "can claim right now" in clean_lower or "claim is ready" in clean_lower:
                 self.state_mgr.state['claim_available'] = True
+                self.state_mgr.state['claim_ready_at'] = 0.0
                 Logger.success("Claim status: READY")
             elif "can't claim right now" in clean_lower or "cannot claim" in clean_lower:
                 self.state_mgr.state['claim_available'] = False
-                Logger.info("Claim status: ON COOLDOWN")
+                claim_cd_match = self._RE_TU_CLAIM_CD.search(clean_lower)
+                if claim_cd_match and (claim_cd_match.group(1) or claim_cd_match.group(2)):
+                    ch = int(claim_cd_match.group(1) or 0)
+                    cm = int(claim_cd_match.group(2) or 0)
+                    rem_secs = ch * 3600 + cm * 60
+                    cooldown_secs = getattr(Vars, 'claimCooldownHours', 3.0) * 3600.0
+                    self.state_mgr.state['claim_ready_at'] = now + rem_secs
+                    self.state_mgr.state['last_claim_timestamp'] = now - max(0.0, cooldown_secs - rem_secs)
+                    Logger.info(f"Claim status: ON COOLDOWN ({ch}h {cm}m remaining)")
+                else:
+                    self.state_mgr.state['claim_ready_at'] = now + 1800.0
+                    Logger.info("Claim status: ON COOLDOWN")
 
             # 2. Parse $rt status
             if any(p in clean_lower for p in ["$rt is available", "rt is available", "$rt is ready", "rt is ready", "can use $rt"]):
                 self.state_mgr.state['rt_available'] = True
+                self.state_mgr.state['rt_ready_at'] = 0.0
                 self.state_mgr.state['last_rt_timestamp'] = 0.0
                 Logger.success("$rt status: READY")
             else:
-                rt_match = re.search(r'(?:next\s*\$rt\s*in|\$rt\s*(?:reset|cooldown)\s*in|cannot\s*use\s*\$rt[^\d\n]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?', clean_lower)
+                rt_match = self._RE_TU_RT_CD.search(clean_lower)
                 if rt_match and (rt_match.group(1) or rt_match.group(2)):
                     h = int(rt_match.group(1) or 0)
                     m = int(rt_match.group(2) or 0)
                     rem_secs = h * 3600 + m * 60
                     cooldown_secs = getattr(Vars, 'rtCooldownHours', 5.0) * 3600.0
-                    self.state_mgr.state['last_rt_timestamp'] = time.time() - max(0.0, cooldown_secs - rem_secs)
+                    self.state_mgr.state['rt_ready_at'] = now + rem_secs
+                    self.state_mgr.state['last_rt_timestamp'] = now - max(0.0, cooldown_secs - rem_secs)
                     self.state_mgr.state['rt_available'] = False
                     Logger.info(f"$rt status: On cooldown ({h}h {m}m remaining)")
 
             # 3. Parse Kakera power percentage
-            power_match = re.search(r'(?:kakera\s+)?power(?:\s+is\s+at)?\s*[:：]?\s*[*_]*(\d+)[*_]*%', full_text, re.IGNORECASE)
+            power_match = self._RE_TU_POWER.search(full_text)
             if power_match:
                 try:
                     power_pct = int(power_match.group(1))
@@ -482,17 +631,20 @@ class MudaeRoller:
                 Logger.warn("Could not extract kakera power percentage from $tu response.")
 
             # 4. Parse $dk status
-            dk_match = re.search(r'(?:next\s*\$dk\s*in|\$dk\s*(?:reset|cooldown)\s*in|cannot\s*use\s*\$dk[^\d\n]*)\s*(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*min)?', clean_lower)
+            dk_match = self._RE_TU_DK_CD.search(clean_lower)
             if dk_match and (dk_match.group(1) or dk_match.group(2)):
                 dh = int(dk_match.group(1) or 0)
                 dm = int(dk_match.group(2) or 0)
+                rem_secs = dh * 3600 + dm * 60
                 self.state_mgr.state['dk_available'] = False
+                self.state_mgr.state['dk_ready_at'] = now + rem_secs
                 Logger.info(f"$dk status: On cooldown ({dh}h {dm}m remaining)")
             elif any(p in clean_lower for p in ["$dk is available", "dk is available", "$dk is ready", "dk is ready", "can use $dk", "may use $dk"]):
                 self.state_mgr.state['dk_available'] = True
+                self.state_mgr.state['dk_ready_at'] = 0.0
                 Logger.success("$dk status: READY")
 
-            self.state_mgr.state['last_tu_sync'] = time.time()
+            self.state_mgr.state['last_tu_sync'] = now
             self.state_mgr.save()
         except Exception as e:
             Logger.warn(f"Failed to sync $tu timers: {e}")
@@ -514,6 +666,7 @@ class MudaeRoller:
             if resp.status_code == 200:
                 commander = SlashCommander(resp.json())
                 self.cached_slash_command = commander.get([Vars.rollCommand])
+                self._cached_cmd_name = Vars.rollCommand
                 return self.cached_slash_command
             else:
                 Logger.error(f"Failed to fetch slash commands: HTTP {resp.status_code}")
@@ -565,8 +718,36 @@ class MudaeRoller:
         return []
 
     def claim_card(self, card_info: Dict[str, Any]) -> bool:
-        """Attempts to claim a card via reaction with retry verification."""
+        """Attempts to claim a card via interactive claim button (if present) and/or reaction emoji."""
         message_id = card_info['message_id']
+        known_kakeras = {k.lower() for k in getattr(Vars, 'ALL_KNOWN_BUTTONS', [])}
+
+        # 1. Check if Mudae attached a non-kakera interactive claim button (e.g. heart button)
+        for btn in card_info.get('buttons', []):
+            emoji_name = btn.get('emoji', {}).get('name', '')
+            emoji_lower = emoji_name.lower()
+            custom_id = btn.get('custom_id')
+            if custom_id and not (
+                emoji_lower in known_kakeras or
+                emoji_lower.startswith('kakera') or
+                emoji_lower.startswith('sp')
+            ):
+                try:
+                    client = self._get_discum_client()
+                    client.click(
+                        card_info['author_id'] or BOT_ID,
+                        channelID=Vars.channelId,
+                        guildID=Vars.serverId,
+                        messageID=message_id,
+                        messageFlags=card_info.get('flags', 0),
+                        data={'component_type': 2, 'custom_id': custom_id}
+                    )
+                    Logger.success(f"Claim button ({emoji_name or 'Button'}) clicked on {card_info['name']}!")
+                    return True
+                except Exception as e:
+                    Logger.warn(f"Claim button click failed ({e}), falling back to reaction...")
+
+        # 2. Place reaction emoji
         claim_emoji = getattr(Vars, 'claimEmoji', '💖')
         encoded_emoji = urllib.parse.quote(claim_emoji)
         reaction_url = f"https://discord.com/api/{self.api_version}/channels/{Vars.channelId}/messages/{message_id}/reactions/{encoded_emoji}/%40me"
@@ -593,32 +774,32 @@ class MudaeRoller:
 
         return False
 
+    @classmethod
+    def _button_priority(cls, btn: Dict[str, Any]) -> int:
+        name = btn.get('emoji', {}).get('name', '').lower()
+        if name in cls._BUTTON_PRIORITY_MAP:
+            return cls._BUTTON_PRIORITY_MAP[name]
+        if name.startswith('sp'):
+            return 1
+        return 6
+
     def react_to_kakeras(self, card_info: Dict[str, Any]) -> int:
-        """Clicks any matching kakera or ourosphere buttons on the card."""
-        desired_kakeras = [k.lower() for k in getattr(Vars, 'desiredKakeras', []) if k]
+        """Clicks any matching kakera or ourosphere buttons on the card, ordered by Mudae value tier."""
+        buttons = card_info.get('buttons', [])
+        if not buttons:
+            return 0
+
+        desired_kakeras = {k.lower() for k in getattr(Vars, 'desiredKakeras', []) if k}
         auto_perk_bonus = getattr(Vars, 'autoPerkBonusKakera', True)
         is_bonus_card = auto_perk_bonus and card_info.get('has_sphere_perk_bonus', False)
 
         if is_bonus_card:
             reason = card_info.get('sphere_bonus_reason', 'Perk 8 Bonus')
-            Logger.info(f"Perk bonus active ({reason}) on {card_info['name']} -> clicking all kakera and sphere buttons")
+            Logger.info(f"[PERK-8] Bonus active ({reason}) on {card_info['name']} -> clicking all kakera and sphere buttons")
 
         clicked = 0
         client = self._get_discum_client()
-
-        buttons = card_info.get('buttons', [])
-        # Prioritize free claims (spP, kakeraP) and high-value buttons first
-        def button_priority(b):
-            name = b.get('emoji', {}).get('name', '').lower()
-            if name in ('spp', 'kakerap'):
-                return 0
-            if name.startswith('sp'):
-                return 1
-            if name in ('spr', 'kakerar', 'kakerao', 'spo'):
-                return 2
-            return 3
-
-        sorted_buttons = sorted(buttons, key=button_priority)
+        sorted_buttons = sorted(buttons, key=self._button_priority)
         known_kakera_set = {k.lower() for k in getattr(Vars, 'KNOWN_KAKERAS', [])}
         known_sphere_set = {s.lower() for s in getattr(Vars, 'KNOWN_SPHERES', [])}
 
@@ -649,12 +830,11 @@ class MudaeRoller:
                     continue
                 try:
                     if emoji_lower.startswith('sp') or emoji_lower in known_sphere_set:
-                        Logger.info(f"Ourosphere button ({emoji_name}) clicked on {card_info['name']}")
+                        Logger.info(f"[SPHERE] Clicked {emoji_name} on {card_info['name']}")
+                    elif is_bonus_card and emoji_lower not in desired_kakeras:
+                        Logger.info(f"[PERK-8] Clicked {emoji_name} on {card_info['name']} [{card_info.get('sphere_bonus_reason')}]")
                     else:
-                        if is_bonus_card and emoji_lower not in desired_kakeras:
-                            Logger.info(f"Perk 8 bonus click ({emoji_name}) on {card_info['name']} [{card_info.get('sphere_bonus_reason')}]")
-                        else:
-                            Logger.kakera_reacted(emoji_name, card_info['name'])
+                        Logger.kakera_reacted(emoji_name, card_info['name'])
 
                     client.click(
                         card_info['author_id'] or BOT_ID,
@@ -686,7 +866,7 @@ class MudaeRoller:
             Logger.error(f"Error executing {name} ({cmd}): {e}")
         return False
 
-    def run_bonus_commands(self):
+    def run_bonus_commands(self, kakeras_hit: int = 0):
         """Executes configured daily and bonus commands ($p, $dk, $daily)."""
         if getattr(Vars, 'pokeRoll', False):
             self.send_command('Pokeslot', '$p')
@@ -696,19 +876,27 @@ class MudaeRoller:
 
         if getattr(Vars, 'dailyKakera', False):
             threshold = getattr(Vars, 'dkPowerThreshold', 15)
-            # Sync timers via $tu to obtain live kakera power and $dk cooldown status
-            self.sync_timers_via_tu()
 
-            if self.state_mgr.state.get('dk_available') is False:
-                Logger.info("Daily Kakera ($dk) skipped: command is currently on cooldown.")
+            # Avoid a redundant $tu call if $dk is already known to be on cooldown
+            if self.state_mgr.is_dk_ready() is False:
+                Logger.info(f"Daily Kakera ($dk) skipped: command is on cooldown ({self.state_mgr.get_dk_remaining_str()}).")
+                return
+
+            # Re-sync $tu only if kakera buttons were clicked during the session (spending power)
+            # or if timers have not been synced recently
+            since_last_sync = time.time() - self.state_mgr.state.get('last_tu_sync', 0.0)
+            if kakeras_hit > 0 or since_last_sync > 600.0 or self.state_mgr.state.get('kakera_power') is None:
+                self.sync_timers_via_tu()
+
+            if self.state_mgr.is_dk_ready() is False:
+                Logger.info(f"Daily Kakera ($dk) skipped: command is on cooldown ({self.state_mgr.get_dk_remaining_str()}).")
             else:
                 current_power = self.state_mgr.state.get('kakera_power', None)
                 if current_power is not None:
                     if current_power < threshold:
                         Logger.info(f"Kakera power is at {current_power}% (< {threshold}% threshold). Executing $dk...")
                         if self.send_command('Daily Kakera', '$dk'):
-                            self.state_mgr.state['dk_available'] = False
-                            self.state_mgr.save()
+                            self.state_mgr.record_dk_used()
                     else:
                         Logger.info(f"Daily Kakera ($dk) skipped: power is at {current_power}% (threshold: < {threshold}%).")
                 else:
@@ -716,6 +904,10 @@ class MudaeRoller:
 
     def run_roll_session(self):
         """Executes a full hourly roll session until rolls are exhausted or limits are reached."""
+        # Hot-reload settings from disk in case the user saved changes in ConfigUI
+        Vars.reload_settings()
+        self.refresh_config()
+
         print(f"\n{Fore.CYAN}{Style.BRIGHT}{'='*60}")
         print(f"  MUDAE ROLL SESSION STARTED - {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*60}{Style.RESET_ALL}\n")
@@ -730,10 +922,13 @@ class MudaeRoller:
             if last_sync == 0.0 or (time.time() - last_sync) > 3600.0:
                 self.sync_timers_via_tu()
 
+        # Pre-seed last_processed_msg_id so Roll #1 never re-processes an older channel message
+        initial_msgs = self.fetch_recent_messages(limit=1)
+        last_processed_msg_id = initial_msgs[0].get('id') if initial_msgs else None
+
         rolls_count = 0
         claimed_cards = []
         kakeras_hit = 0
-        last_processed_msg_id = None
         consecutive_misses = 0
 
         while rolls_count < max_rolls:
@@ -765,6 +960,10 @@ class MudaeRoller:
 
             # Avoid re-processing the exact same message
             if mudae_msg.get('id') == last_processed_msg_id:
+                consecutive_misses += 1
+                if consecutive_misses >= 4:
+                    Logger.warn("No new Mudae messages received after multiple rolls. Ending session.")
+                    break
                 time.sleep(1.0)
                 continue
 
@@ -776,18 +975,17 @@ class MudaeRoller:
             embeds = mudae_msg.get('embeds', [])
 
             if msg_content and not embeds:
-                limit_indicators = [
+                limit_indicators = (
                     'limited to', 'rolls left', 'until the reset', 'before the reset',
                     'cannot roll', "can't roll", '⏳', 'limité', '0 min', 'plus de rolls',
                     'roulette is limited', '0 rolls left', 'rolls left: 0', 'no rolls left',
                     'next rolls reset in'
-                ]
+                )
                 if any(ind in msg_content.lower() for ind in limit_indicators):
                     clean_msg = msg_content.replace('\n', ' ').strip()
-                    Logger.warn(f"Out of rolls: {clean_msg[:80]}...")
+                    Logger.info(f"[ROLL-LIMIT] {clean_msg[:80]}")
                     break
                 else:
-                    # Non-limit text (e.g. Kakera drop confirmation, quote, mini-game)
                     Logger.info(f"Mudae message: {msg_content.strip()[:60]}")
                     time.sleep(1.0)
                     continue
@@ -810,11 +1008,11 @@ class MudaeRoller:
             if should_claim:
                 Logger.claim_triggered(card_info['name'], card_info['series'], reason)
 
-                # Check claim timer; if on cooldown, check if $rt is ready!
+                # Check claim timer; if on cooldown, check if $rt is ready
                 claim_ready = self.state_mgr.is_claim_ready()
                 if not claim_ready:
                     if getattr(Vars, 'autoRtOnWishlist', True) and self.state_mgr.is_rt_ready():
-                        Logger.warn(f"Claim timer is on cooldown, but $rt is READY! Triggering $rt for {card_info['name']}...")
+                        Logger.warn(f"Claim timer is on cooldown, but $rt is READY. Triggering $rt for {card_info['name']}...")
                         try:
                             r = self.session.post(self.messages_url, json={'content': '$rt'}, timeout=5)
                             if r.status_code in (200, 201):
@@ -829,13 +1027,13 @@ class MudaeRoller:
 
                 if self.claim_card(card_info):
                     self.state_mgr.record_claim_used()
-                    claimed_cards.append(f"{card_info['name']} ({card_info['series']}) - {card_info['power']} kakera [{reason}]")
+                    claimed_cards.append(f"{card_info['name']} ({card_info['series']}) - {card_info['power']:,} kakera [{reason}]")
 
             # 7. Check and execute Kakera Button Reacts
             kakeras_hit += self.react_to_kakeras(card_info)
 
-        # 8. Bonus & Daily Commands ($p, $dk, $daily, $oh, $oc) if configured
-        self.run_bonus_commands()
+        # 8. Bonus & Daily Commands ($p, $dk, $daily) if configured
+        self.run_bonus_commands(kakeras_hit=kakeras_hit)
 
         # 9. Print Session Summary
         print(f"\n{Fore.CYAN}{'='*60}")
@@ -854,11 +1052,13 @@ class MudaeRoller:
 # ---------------------------------------------------------------------------
 _global_roller: Optional[MudaeRoller] = None
 
+
 def get_roller() -> MudaeRoller:
     global _global_roller
     if _global_roller is None:
         _global_roller = MudaeRoller()
     return _global_roller
+
 
 def simpleRoll():
     """Main rolling function invoked by schedule or manual call."""
