@@ -23,7 +23,7 @@ Uses Discord Slash Commands natively (`/wx`, `/wa`, etc.) to benefit from Mudae'
 - **Automatic $tu Calibration**: Issues `$tu` on startup and hourly to synchronize timers and kakera power directly with Mudae's server clock.
 
 ### Kakera and Ourosphere Reaction
-- **Ourosphere Support**: Reacts to all sphere types (`spP`, `spR`, `spO`, `spY`, `spG`, `spT`, `spB`, `spL`, `spD`, `spM`, `spW`, `spC`).
+- **Ourosphere Support**: Reacts to all sphere types (`spP`, `spB`, `spT`, `spG`, `spY`, `spO`, `spR`, `spW`, `spL`, `spD`).
 - **Perk 8 Halved Power and Double Spheres**:
   - Detects cards with halved kakera power cost (`⚡/2`) and double sphere drops (`:sp: :sp:`).
   - Overrides standard color restrictions and clicks all available kakera buttons on these cards to maximize sphere yield.

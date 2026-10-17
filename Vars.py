@@ -38,15 +38,17 @@ def _load_dotenv():
 _load_dotenv()
 
 
-# Known Kakera and Ourosphere button names
+# Official 11 Kakera and 10 Ourosphere button emoji names in Mudae progression order
 KNOWN_KAKERAS = [
-    'kakera', 'kakeraP', 'kakeraB', 'kakeraT', 'kakeraG', 'kakeraY',
-    'kakeraO', 'kakeraR', 'kakeraW', 'kakeraL', 'kakeraC', 'kakeraD',
+    'kakeraP', 'kakera', 'kakeraT', 'kakeraG', 'kakeraY', 'kakeraO',
+    'kakeraR', 'kakeraW', 'kakeraL', 'kakeraD', 'kakeraC',
 ]
 KNOWN_SPHERES = [
-    'spP', 'spR', 'spO', 'spY', 'spG', 'spT', 'spB', 'spL', 'spD', 'spM', 'spW', 'spC',
+    'spP', 'spB', 'spT', 'spG', 'spY', 'spO', 'spR', 'spW', 'spL', 'spD',
 ]
 ALL_KNOWN_BUTTONS = KNOWN_KAKERAS + KNOWN_SPHERES
+LEGACY_BUTTON_ALIASES = {'kakerab': 'kakera'}
+OBSOLETE_BUTTONS = {'spm', 'spc'}
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +92,9 @@ DEFAULTS = {
     # --- Kakera & Ourosphere AutoReact Preferences ---
     # List of kakera types and ourosphere button emojis to automatically react / click
     'desiredKakeras': [
-        'kakeraP', 'kakeraC', 'kakeraR', 'kakeraD', 'kakeraW', 'kakeraL',
-        'kakeraY', 'kakeraO', 'kakeraG', 'kakeraB', 'kakeraT', 'kakera',
-        'spP', 'spR', 'spO', 'spY', 'spG', 'spT', 'spB', 'spL', 'spD', 'spM', 'spW', 'spC',
+        'kakeraP', 'kakera', 'kakeraT', 'kakeraG', 'kakeraY', 'kakeraO',
+        'kakeraR', 'kakeraW', 'kakeraL', 'kakeraD', 'kakeraC',
+        'spP', 'spB', 'spT', 'spG', 'spY', 'spO', 'spR', 'spW', 'spL', 'spD',
     ],
 
     # --- Bonus & Daily Automation Features ---
@@ -163,7 +165,20 @@ def coerce_setting(key: str, value):
     if isinstance(default, list):
         if isinstance(value, str):
             value = value.split(',')
-        return [str(v).strip() for v in value if str(v).strip()]
+        items = [str(v).strip() for v in value if str(v).strip()]
+        if key == 'desiredKakeras':
+            normalized = []
+            seen = set()
+            for item in items:
+                low = item.lower()
+                if low in OBSOLETE_BUTTONS:
+                    continue
+                canonical = LEGACY_BUTTON_ALIASES.get(low, item)
+                if canonical.lower() not in seen:
+                    seen.add(canonical.lower())
+                    normalized.append(canonical)
+            return normalized
+        return items
     return str(value).strip()
 
 

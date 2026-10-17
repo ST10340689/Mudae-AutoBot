@@ -15,74 +15,43 @@ from tkinter import ttk, messagebox
 
 import Vars
 
-# Kakera button emoji names ordered by Mudae tier/color
+# Official 11 Kakera button emoji names in Mudae progression order
 KNOWN_KAKERAS = [
-    'kakeraP', 'kakeraW', 'kakeraC', 'kakeraL', 'kakeraR', 'kakeraO',
-    'kakeraY', 'kakeraG', 'kakeraT', 'kakeraB', 'kakeraD', 'kakera',
+    'kakeraP', 'kakera', 'kakeraT', 'kakeraG', 'kakeraY', 'kakeraO',
+    'kakeraR', 'kakeraW', 'kakeraL', 'kakeraD', 'kakeraC',
 ]
 
-# Kakera button emoji names -> Friendly Color Display Name
+# Kakera button emoji names -> Official Mudae Display Name
 KAKERA_DISPLAY_NAMES = {
-    'kakeraP': 'Purple (0% Cost)',
-    'kakeraW': 'Rainbow',
-    'kakeraC': 'Chaos',
-    'kakeraL': 'Light Blue',
-    'kakeraR': 'Red',
-    'kakeraO': 'Orange',
-    'kakeraY': 'Yellow',
-    'kakeraG': 'Green',
+    'kakeraP': 'Purple (Free)',
+    'kakera':  'Blue',
     'kakeraT': 'Teal',
-    'kakeraB': 'Blue',
-    'kakeraD': 'Dark Blue',
-    'kakera':  'Bronze (Base)',
+    'kakeraG': 'Green',
+    'kakeraY': 'Yellow',
+    'kakeraO': 'Orange',
+    'kakeraR': 'Red',
+    'kakeraW': 'Rainbow',
+    'kakeraL': 'Light',
+    'kakeraD': 'Dark',
+    'kakeraC': 'Chaos',
 }
 
-# Hex color swatches for visual identification in the UI
-BUTTON_SWATCH_COLORS = {
-    'kakeraP': '#9b59b6',
-    'kakeraW': '#e84393',
-    'kakeraC': '#6c5ce7',
-    'kakeraL': '#74b9ff',
-    'kakeraR': '#e74c3c',
-    'kakeraO': '#e67e22',
-    'kakeraY': '#f1c40f',
-    'kakeraG': '#2ecc71',
-    'kakeraT': '#1abc9c',
-    'kakeraB': '#3498db',
-    'kakeraD': '#1f3a93',
-    'kakera':  '#cd7f32',
-    'spP': '#9b59b6',
-    'spR': '#e74c3c',
-    'spO': '#e67e22',
-    'spY': '#f1c40f',
-    'spG': '#2ecc71',
-    'spT': '#1abc9c',
-    'spB': '#3498db',
-    'spL': '#74b9ff',
-    'spD': '#1f3a93',
-    'spM': '#fd79a8',
-    'spW': '#dfe6e9',
-    'spC': '#00cec9',
-}
-
-# Ourosphere (Sphere) button emoji names (Perk 9 & drops)
+# Official 10 Ourosphere button emoji names in Mudae progression order
 KNOWN_SPHERES = [
-    'spP', 'spR', 'spO', 'spY', 'spG', 'spT', 'spB', 'spL', 'spD', 'spM', 'spW', 'spC',
+    'spP', 'spB', 'spT', 'spG', 'spY', 'spO', 'spR', 'spW', 'spL', 'spD',
 ]
 
 SPHERE_DISPLAY_NAMES = {
-    'spP': 'Purple (Free Claim)',
-    'spR': 'Red (Top Tier)',
-    'spO': 'Orange',
-    'spY': 'Yellow',
-    'spG': 'Green',
-    'spT': 'Teal',
+    'spP': 'Purple (Free)',
     'spB': 'Blue',
-    'spL': 'Light Blue',
-    'spD': 'Dark Blue',
-    'spM': 'Magenta',
-    'spW': 'White',
-    'spC': 'Cyan',
+    'spT': 'Teal',
+    'spG': 'Green',
+    'spY': 'Yellow',
+    'spO': 'Orange',
+    'spR': 'Red',
+    'spW': 'Rainbow',
+    'spL': 'Light',
+    'spD': 'Dark',
 }
 
 ALL_KNOWN_BUTTONS = KNOWN_KAKERAS + KNOWN_SPHERES
@@ -468,21 +437,12 @@ class ConfigApp:
             .grid(row=0, column=1, sticky='nsew', padx=(6, 0))
         return f
 
-    def _create_swatch_checkbox(self, parent, name: str, display_text: str, var: tk.BooleanVar):
-        cell = ttk.Frame(parent)
-        color = BUTTON_SWATCH_COLORS.get(name, '#888888')
-        swatch = tk.Canvas(cell, width=10, height=10, highlightthickness=1, highlightbackground='#555555')
-        swatch.create_rectangle(0, 0, 10, 10, fill=color, outline='')
-        swatch.pack(side='left', padx=(0, 4))
-        ttk.Checkbutton(cell, text=display_text, variable=var, width=19).pack(side='left')
-        return cell
-
     def _build_kakera_tab(self, nb):
         f = self._tab(nb)
         cols = 3
 
         # 1. Standard Kakera group
-        k_frame = ttk.LabelFrame(f, text=" Standard Kakera Buttons (Ordered by Priority) ", padding=8)
+        k_frame = ttk.LabelFrame(f, text=" Standard Kakera Buttons ", padding=8)
         k_frame.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 8))
         for c in range(cols):
             k_frame.columnconfigure(c, weight=1)
@@ -490,8 +450,8 @@ class ConfigApp:
             var = tk.BooleanVar(self.root)
             self.kakera_vars[name] = var
             display_text = KAKERA_DISPLAY_NAMES.get(name, name)
-            cell = self._create_swatch_checkbox(k_frame, name, display_text, var)
-            cell.grid(row=i // cols, column=i % cols, sticky='w', padx=(0, 8), pady=2)
+            ttk.Checkbutton(k_frame, text=display_text, variable=var, width=18) \
+                .grid(row=i // cols, column=i % cols, sticky='w', padx=(0, 8), pady=2)
 
         # 2. Ourospheres group
         s_frame = ttk.LabelFrame(f, text=" Ourospheres (Perk 9 / Sphere Buttons) ", padding=8)
@@ -502,8 +462,8 @@ class ConfigApp:
             var = tk.BooleanVar(self.root)
             self.kakera_vars[name] = var
             display_text = SPHERE_DISPLAY_NAMES.get(name, name)
-            cell = self._create_swatch_checkbox(s_frame, name, display_text, var)
-            cell.grid(row=i // cols, column=i % cols, sticky='w', padx=(0, 8), pady=2)
+            ttk.Checkbutton(s_frame, text=display_text, variable=var, width=18) \
+                .grid(row=i // cols, column=i % cols, sticky='w', padx=(0, 8), pady=2)
 
         # Quick Selection Toolbar
         btns = ttk.Frame(f)

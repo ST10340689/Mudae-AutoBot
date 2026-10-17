@@ -486,12 +486,12 @@ class MudaeRoller:
     # Mudae Kakera button value hierarchy (lower number = clicked first when power is limited)
     _BUTTON_PRIORITY_MAP = {
         'spp': 0, 'kakerap': 0,
-        'spr': 1, 'spo': 1, 'spy': 1, 'spg': 1, 'spt': 1, 'spb': 1,
-        'spl': 1, 'spd': 1, 'spm': 1, 'spw': 1, 'spc': 1,
+        'spw': 1, 'spl': 1, 'spr': 1, 'spd': 1, 'spo': 1,
+        'spy': 1, 'spg': 1, 'spt': 1, 'spb': 1,
         'kakerac': 2, 'kakeraw': 2, 'kakeral': 2,
         'kakerar': 3, 'kakerad': 3, 'kakerao': 3,
-        'kakeray': 4, 'kakerag': 4, 'kakerat': 4, 'kakerab': 4,
-        'kakera': 5,
+        'kakeray': 4, 'kakerag': 4, 'kakerat': 4,
+        'kakera': 5, 'kakerab': 5,
     }
 
     _RE_TU_CLAIM_CD = re.compile(
@@ -790,6 +790,9 @@ class MudaeRoller:
             return 0
 
         desired_kakeras = {k.lower() for k in getattr(Vars, 'desiredKakeras', []) if k}
+        if 'kakera' in desired_kakeras or 'kakerab' in desired_kakeras:
+            desired_kakeras.add('kakera')
+            desired_kakeras.add('kakerab')
         auto_perk_bonus = getattr(Vars, 'autoPerkBonusKakera', True)
         is_bonus_card = auto_perk_bonus and card_info.get('has_sphere_perk_bonus', False)
 
